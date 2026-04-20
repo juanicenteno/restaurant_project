@@ -1,0 +1,21 @@
+{
+  "name": "@repo/db",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./schema": "./src/schema.ts",
+    "./client": "./src/client.ts",
+    "./relations": "./src/relations.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "5.9.2",
+    "@types/node": "^22.0.0"
+  }
+}

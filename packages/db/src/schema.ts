@@ -1,116 +1,33 @@
+// Enums compartidos
+export * from "./schema/restaurants.js";
+export * from "./auth-schema.js";
+
+// Re-exportar enums que todavía no tienen su propio archivo
 import { sql } from "drizzle-orm";
 import {
-    pgTable,
-    pgEnum,
-    uuid,
-    text,
-    boolean,
-    timestamp,
-    numeric,
-    integer,
-    date,
-    jsonb,
-    uniqueIndex,
-    index,
+    pgTable, pgEnum, uuid, text, boolean, timestamp,
+    numeric, integer, date, jsonb, uniqueIndex, index,
 } from "drizzle-orm/pg-core";
+import { restaurants } from "./schema/restaurants.js";
+import { user } from "./auth-schema.js";
 
-export const planTypeEnum = pgEnum("plan_type", ["free", "basic", "pro", "chain"]);
 export const userRoleEnum = pgEnum("user_role", ["owner", "manager", "waiter", "cashier", "cook", "host"]);
 export const deviceTypeEnum = pgEnum("device_type", ["tablet", "phone", "desktop", "kds"]);
 export const tableStatusEnum = pgEnum("table_status", ["free", "occupied", "reserved", "waiting_bill", "cleaning"]);
 export const tableShapeEnum = pgEnum("table_shape", ["rectangle", "circle", "square"]);
 export const unitTypeEnum = pgEnum("unit_type", ["g", "kg", "ml", "l", "unit", "portion"]);
-export const stockMovementReasonEnum = pgEnum("stock_movement_reason", [
-    "sale",
-    "purchase",
-    "adjustment",
-    "waste",
-    "return",
-]);
-export const orderStatusEnum = pgEnum("order_status", [
-    "open",
-    "in_progress",
-    "ready",
-    "billed",
-    "paid",
-    "cancelled",
-]);
-export const orderItemStatusEnum = pgEnum("order_item_status", [
-    "pending",
-    "sent",
-    "preparing",
-    "ready",
-    "delivered",
-    "cancelled",
-]);
-export const paymentMethodEnum = pgEnum("payment_method", [
-    "cash",
-    "credit_card",
-    "debit_card",
-    "mercado_pago",
-    "transfer",
-    "voucher",
-    "other",
-]);
+export const stockMovementReasonEnum = pgEnum("stock_movement_reason", ["sale", "purchase", "adjustment", "waste", "return"]);
+export const orderStatusEnum = pgEnum("order_status", ["open", "in_progress", "ready", "billed", "paid", "cancelled"]);
+export const orderItemStatusEnum = pgEnum("order_item_status", ["pending", "sent", "preparing", "ready", "delivered", "cancelled"]);
+export const paymentMethodEnum = pgEnum("payment_method", ["cash", "credit_card", "debit_card", "mercado_pago", "transfer", "voucher", "other"]);
 export const paymentStatusEnum = pgEnum("payment_status", ["pending", "approved", "rejected", "refunded"]);
 export const invoiceTypeEnum = pgEnum("invoice_type", ["A", "B", "C", "credit_note_A", "credit_note_B"]);
-export const reservationStatusEnum = pgEnum("reservation_status", [
-    "pending",
-    "confirmed",
-    "seated",
-    "completed",
-    "cancelled",
-    "no_show",
-]);
-
-export const restaurants = pgTable("restaurants", {
-    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    name: text("name").notNull(),
-    slug: text("slug").notNull().unique(),
-    cuit: text("cuit"),
-    address: text("address"),
-    city: text("city"),
-    province: text("province"),
-    phone: text("phone"),
-    email: text("email"),
-    logoUrl: text("logo_url"),
-    timezone: text("timezone").notNull().default("America/Argentina/Buenos_Aires"),
-    currency: text("currency").notNull().default("ARS"),
-    plan: planTypeEnum("plan").notNull().default("free"),
-    trialEndsAt: timestamp("trial_ends_at"),
-    settings: jsonb("settings").notNull().default(sql`'{}'::jsonb`),
-    isActive: boolean("is_active").notNull().default(true),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-export const users = pgTable("users", {
-    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
-    email: text("email").notNull(),
-    passwordHash: text("password_hash").notNull(),
-    name: text("name").notNull(),
-    phone: text("phone"),
-    avatarUrl: text("avatar_url"),
-    role: userRoleEnum("role").notNull().default("waiter"),
-    isActive: boolean("is_active").notNull().default(true),
-    lastLoginAt: timestamp("last_login_at"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => [
-    uniqueIndex("users_restaurant_email_unique").on(table.restaurantId, table.email),
-    index("users_restaurant_idx").on(table.restaurantId),
-    index("users_email_idx").on(table.email),
-]);
+export const reservationStatusEnum = pgEnum("reservation_status", ["pending", "confirmed", "seated", "completed", "cancelled", "no_show"]);
 
 export const devices = pgTable("devices", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
-    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     type: deviceTypeEnum("type").notNull().default("phone"),
     platform: text("platform"),
@@ -126,9 +43,7 @@ export const devices = pgTable("devices", {
 
 export const sections = pgTable("sections", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
     name: text("name").notNull(),
     description: text("description"),
     displayOrder: integer("display_order").notNull().default(0),
@@ -141,12 +56,8 @@ export const sections = pgTable("sections", {
 
 export const tables = pgTable("tables", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
-    sectionId: uuid("section_id")
-        .references(() => sections.id, { onDelete: "restrict" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
+    sectionId: uuid("section_id").references(() => sections.id, { onDelete: "restrict" }).notNull(),
     number: text("number").notNull(),
     capacity: integer("capacity").notNull().default(4),
     posX: numeric("pos_x", { precision: 10, scale: 2 }).notNull().default("0"),
@@ -167,9 +78,7 @@ export const tables = pgTable("tables", {
 
 export const categories = pgTable("categories", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
     parentId: uuid("parent_id").references((): any => categories.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     description: text("description"),
@@ -184,12 +93,8 @@ export const categories = pgTable("categories", {
 
 export const products = pgTable("products", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
-    categoryId: uuid("category_id")
-        .references(() => categories.id, { onDelete: "restrict" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
+    categoryId: uuid("category_id").references(() => categories.id, { onDelete: "restrict" }).notNull(),
     name: text("name").notNull(),
     description: text("description"),
     imageUrl: text("image_url"),
@@ -211,9 +116,7 @@ export const products = pgTable("products", {
 
 export const modifierGroups = pgTable("modifier_groups", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
     name: text("name").notNull(),
     required: boolean("required").notNull().default(false),
     multiple: boolean("multiple").notNull().default(false),
@@ -225,23 +128,15 @@ export const modifierGroups = pgTable("modifier_groups", {
 ]);
 
 export const productModifierGroups = pgTable("product_modifier_groups", {
-    productId: uuid("product_id")
-        .references(() => products.id, { onDelete: "cascade" })
-        .notNull(),
-    groupId: uuid("group_id")
-        .references(() => modifierGroups.id, { onDelete: "cascade" })
-        .notNull(),
+    productId: uuid("product_id").references(() => products.id, { onDelete: "cascade" }).notNull(),
+    groupId: uuid("group_id").references(() => modifierGroups.id, { onDelete: "cascade" }).notNull(),
     displayOrder: integer("display_order").notNull().default(0),
 });
 
 export const modifiers = pgTable("modifiers", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
-    groupId: uuid("group_id")
-        .references(() => modifierGroups.id, { onDelete: "cascade" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
+    groupId: uuid("group_id").references(() => modifierGroups.id, { onDelete: "cascade" }).notNull(),
     name: text("name").notNull(),
     priceDelta: numeric("price_delta", { precision: 12, scale: 2 }).notNull().default("0"),
     isDefault: boolean("is_default").notNull().default(false),
@@ -249,13 +144,12 @@ export const modifiers = pgTable("modifiers", {
     displayOrder: integer("display_order").notNull().default(0),
 }, (table) => [
     index("modifiers_restaurant_idx").on(table.restaurantId),
+    index("modifiers_group_idx").on(table.groupId),
 ]);
 
 export const ingredients = pgTable("ingredients", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
     name: text("name").notNull(),
     unit: unitTypeEnum("unit").notNull().default("unit"),
     stockQuantity: numeric("stock_quantity", { precision: 12, scale: 3 }).notNull().default("0"),
@@ -270,15 +164,9 @@ export const ingredients = pgTable("ingredients", {
 
 export const recipes = pgTable("recipes", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
-    productId: uuid("product_id")
-        .references(() => products.id, { onDelete: "cascade" })
-        .notNull(),
-    ingredientId: uuid("ingredient_id")
-        .references(() => ingredients.id, { onDelete: "restrict" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
+    productId: uuid("product_id").references(() => products.id, { onDelete: "cascade" }).notNull(),
+    ingredientId: uuid("ingredient_id").references(() => ingredients.id, { onDelete: "restrict" }).notNull(),
     quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
     unit: unitTypeEnum("unit").notNull().default("unit"),
 }, (table) => [
@@ -288,18 +176,14 @@ export const recipes = pgTable("recipes", {
 
 export const stockMovements = pgTable("stock_movements", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
-    ingredientId: uuid("ingredient_id")
-        .references(() => ingredients.id, { onDelete: "restrict" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
+    ingredientId: uuid("ingredient_id").references(() => ingredients.id, { onDelete: "restrict" }).notNull(),
     orderId: uuid("order_id"),
     reason: stockMovementReasonEnum("reason").notNull(),
     quantityDelta: numeric("quantity_delta", { precision: 12, scale: 4 }).notNull(),
     quantityAfter: numeric("quantity_after", { precision: 12, scale: 4 }).notNull(),
     notes: text("notes"),
-    createdBy: uuid("created_by").references(() => users.id),
+    createdBy: text("created_by").references(() => user.id),
     createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
     index("stock_movements_ingredient_idx").on(table.ingredientId),
@@ -308,11 +192,9 @@ export const stockMovements = pgTable("stock_movements", {
 
 export const orders = pgTable("orders", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
     tableId: uuid("table_id").references(() => tables.id, { onDelete: "set null" }),
-    waiterId: uuid("waiter_id").references(() => users.id, { onDelete: "set null" }),
+    waiterId: text("waiter_id").references(() => user.id, { onDelete: "set null" }),
     deviceId: uuid("device_id").references(() => devices.id, { onDelete: "set null" }),
     customerId: uuid("customer_id"),
     status: orderStatusEnum("status").notNull().default("open"),
@@ -340,15 +222,9 @@ export const orders = pgTable("orders", {
 
 export const orderItems = pgTable("order_items", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
-    orderId: uuid("order_id")
-        .references(() => orders.id, { onDelete: "cascade" })
-        .notNull(),
-    productId: uuid("product_id")
-        .references(() => products.id, { onDelete: "restrict" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "cascade" }).notNull(),
+    productId: uuid("product_id").references(() => products.id, { onDelete: "restrict" }).notNull(),
     guestNumber: integer("guest_number"),
     quantity: integer("quantity").notNull().default(1),
     unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull(),
@@ -368,12 +244,8 @@ export const orderItems = pgTable("order_items", {
 
 export const orderItemModifiers = pgTable("order_item_modifiers", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
-    orderItemId: uuid("order_item_id")
-        .references(() => orderItems.id, { onDelete: "cascade" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
+    orderItemId: uuid("order_item_id").references(() => orderItems.id, { onDelete: "cascade" }).notNull(),
     modifierId: uuid("modifier_id").references(() => modifiers.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     priceDelta: numeric("price_delta", { precision: 12, scale: 2 }).notNull().default("0"),
@@ -383,13 +255,9 @@ export const orderItemModifiers = pgTable("order_item_modifiers", {
 
 export const payments = pgTable("payments", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
-    orderId: uuid("order_id")
-        .references(() => orders.id, { onDelete: "restrict" })
-        .notNull(),
-    processedBy: uuid("processed_by").references(() => users.id, { onDelete: "set null" }),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "restrict" }).notNull(),
+    processedBy: text("processed_by").references(() => user.id, { onDelete: "set null" }),
     method: paymentMethodEnum("method").notNull(),
     amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
     tipAmount: numeric("tip_amount", { precision: 12, scale: 2 }).notNull().default("0"),
@@ -406,12 +274,8 @@ export const payments = pgTable("payments", {
 
 export const invoices = pgTable("invoices", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
-    orderId: uuid("order_id")
-        .references(() => orders.id, { onDelete: "restrict" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "restrict" }).notNull(),
     customerId: uuid("customer_id"),
     type: invoiceTypeEnum("type").notNull().default("B"),
     afipPuntoVenta: integer("afip_punto_venta"),
@@ -434,9 +298,7 @@ export const invoices = pgTable("invoices", {
 
 export const customers = pgTable("customers", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
     name: text("name").notNull(),
     email: text("email"),
     phone: text("phone"),
@@ -451,19 +313,16 @@ export const customers = pgTable("customers", {
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
-    uniqueIndex("customers_restaurant_phone_unique").on(table.restaurantId, table.phone),
     index("customers_restaurant_idx").on(table.restaurantId),
     index("customers_phone_idx").on(table.restaurantId, table.phone),
 ]);
 
 export const reservations = pgTable("reservations", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
     customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
     tableId: uuid("table_id").references(() => tables.id, { onDelete: "set null" }),
-    assignedWaiterId: uuid("assigned_waiter_id").references(() => users.id, { onDelete: "set null" }),
+    assignedWaiterId: text("assigned_waiter_id").references(() => user.id, { onDelete: "set null" }),
     partySize: integer("party_size").notNull(),
     reservedAt: timestamp("reserved_at").notNull(),
     durationMinutes: integer("duration_minutes").notNull().default(90),
@@ -480,12 +339,8 @@ export const reservations = pgTable("reservations", {
 
 export const shifts = pgTable("shifts", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-    restaurantId: uuid("restaurant_id")
-        .references(() => restaurants.id, { onDelete: "cascade" })
-        .notNull(),
-    userId: uuid("user_id")
-        .references(() => users.id, { onDelete: "cascade" })
-        .notNull(),
+    restaurantId: uuid("restaurant_id").references(() => restaurants.id, { onDelete: "cascade" }).notNull(),
+    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }).notNull(),
     clockInAt: timestamp("clock_in_at").notNull(),
     clockOutAt: timestamp("clock_out_at"),
     breakMinutes: integer("break_minutes").notNull().default(0),

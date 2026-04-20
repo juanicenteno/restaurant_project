@@ -10,8 +10,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Este es el truco para el "Script de creación inicial":
-      - ./init-db:/docker-entrypoint-initdb.d 
     networks:
       - restaurante-network
 

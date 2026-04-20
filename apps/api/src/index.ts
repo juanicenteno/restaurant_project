@@ -1,13 +1,14 @@
+import 'dotenv/config'
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
 import { logger } from 'hono/logger'
+import { auth } from './auth.js'
+import type { AppVariables } from './types.js'
 
-const app = new Hono()
+const app = new Hono<{ Variables: AppVariables }>()
 
-// Middleware de logging (Punto 5 del roadmap) 
 app.use('*', logger())
 
-// Manejo de errores global (Punto 5 del roadmap) 
 app.onError((err, c) => {
   console.error(`${err}`)
   return c.text('Error interno del servidor', 500)
@@ -20,7 +21,11 @@ app.get('/', (c) => {
   })
 })
 
-const port = 3000
+app.on(['GET', 'POST'], '/api/auth/**', (c) => {
+  return auth.handler(c.req.raw)
+})
+
+const port = Number(process.env.PORT) ?? 3001
 console.log(`Servidor corriendo en http://localhost:${port}`)
 
 serve({
