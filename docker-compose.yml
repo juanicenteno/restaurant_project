@@ -1,0 +1,23 @@
+services:
+  postgres-db:
+    image: postgres:16-alpine
+    container_name: restaurante_db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: juani123
+      POSTGRES_DB: sistema_restaurantes
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Este es el truco para el "Script de creación inicial":
+      - ./init-db:/docker-entrypoint-initdb.d 
+    networks:
+      - restaurante-network
+
+networks:
+  restaurante-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

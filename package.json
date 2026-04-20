@@ -1,5 +1,5 @@
 {
-  "name": "my-turborepo",
+  "name": "restaurant_project",
   "private": true,
   "scripts": {
     "build": "turbo run build",
@@ -9,6 +9,7 @@
     "check-types": "turbo run check-types"
   },
   "devDependencies": {
+    "drizzle-kit": "^0.31.10",
     "prettier": "^3.7.4",
     "turbo": "^2.9.6",
     "typescript": "5.9.2"
@@ -20,5 +21,9 @@
   "workspaces": [
     "apps/*",
     "packages/*"
-  ]
+  ],
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.9"
+  }
 }
