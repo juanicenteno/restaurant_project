@@ -82,15 +82,6 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
   const [error, setError] = useState<string | null>(null)
   const [mpReturnNotice, setMpReturnNotice] = useState<string | null>(null)
 
-  // Mercado Pago Return Status check
-  useEffect(() => {
-    const mpStatus = searchParams.get("mp_status")
-    if (mpStatus === "success" || mpStatus === "pending") {
-      setMpReturnNotice("Pago iniciado en Mercado Pago. Esperando la confirmación automática por webhook...")
-    } else if (mpStatus === "failure") {
-      setError("El pago en Mercado Pago no pudo completarse o fue cancelado.")
-    }
-  }, [searchParams])
 
   // Discount form state
   const [discountInput, setDiscountInput] = useState<string>("")
@@ -174,6 +165,26 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
     }
   }, [orderId])
 
+  // Mercado Pago Return Status check (definido DESPUÉS de fetchAllData para evitar ReferenceError)
+  useEffect(() => {
+    const mpStatus = searchParams.get("mp_status")
+    if (mpStatus === "success") {
+      setMpReturnNotice("Pago aprobado en Mercado Pago. Actualizando...")
+      // El backend ya procesó el pago al recibir la redirección.
+      // Hacemos refetch con un pequeño delay para dar tiempo al servidor.
+      const timer = setTimeout(() => {
+        fetchAllData()
+        setMpReturnNotice(null)
+        setMpInitPoint(null)
+      }, 1500)
+      return () => clearTimeout(timer)
+    } else if (mpStatus === "pending") {
+      setMpReturnNotice("Pago pendiente en Mercado Pago. Esperando confirmación automática por webhook...")
+    } else if (mpStatus === "failure") {
+      setError("El pago en Mercado Pago no pudo completarse o fue cancelado.")
+    }
+  }, [searchParams, fetchAllData])
+
   // Realtime WebSocket Subscription
   const restaurantId = session?.user?.restaurantId
   const { subscribe } = useRealtimeConnection(restaurantId)
@@ -216,7 +227,7 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
         throw new Error(data.error || "No se pudo generar el link de cobro con Mercado Pago.")
       }
 
-      setMpInitPoint(data.init_point)
+      setMpInitPoint(data.sandbox_init_point || data.init_point)
     } catch (err: any) {
       console.error(err)
       setError(err.message || "Error al generar link de Mercado Pago.")

@@ -1336,8 +1336,81 @@ app.post('/api/mercadopago/oauth/disconnect', tenantMiddleware, requirePermissio
 // RUTAS PUENTE MERCADO PAGO RETURN (Desarrollo / ngrok)
 // Mercado Pago no acepta URLs locales (http://localhost:3000) en back_urls ni para auto_return.
 // Estas rutas puente intermedias reciben la redirección desde la URL pública de ngrok y redirigen al frontend local.
-app.get('/api/mercadopago/return/success', (c) => {
+app.get('/api/mercadopago/return/success', async (c) => {
   const orderId = c.req.query('orderId') || ''
+  const paymentId = c.req.query('payment_id') || c.req.query('collection_id') || ''
+  const status = c.req.query('status') || c.req.query('collection_status') || ''
+  const externalReference = c.req.query('external_reference') || ''
+
+  // Si el pago viene como approved, intentamos registrarlo de inmediato
+  // (sin esperar al webhook, que puede tardar o fallar en desarrollo)
+  if (paymentId && status === 'approved' && orderId) {
+    try {
+      let restaurantId: string | null = null
+      try {
+        const refObj = JSON.parse(decodeURIComponent(externalReference))
+        restaurantId = refObj.restaurantId || null
+      } catch (_) {}
+
+      if (!restaurantId) {
+        // Fallback: buscar el restaurante por orderId
+        const [order] = await db.select({ restaurantId: orders.restaurantId }).from(orders).where(eq(orders.id, orderId)).limit(1)
+        restaurantId = order?.restaurantId || null
+      }
+
+      if (restaurantId) {
+        // Obtener access token del restaurante
+        const [restaurant] = await db.select({ mpAccessToken: restaurants.mpAccessToken }).from(restaurants).where(eq(restaurants.id, restaurantId)).limit(1)
+        const token = restaurant?.mpAccessToken || env.MP_TEST_ACCESS_TOKEN || env.MP_CLIENT_SECRET
+
+        if (token) {
+          const client = new MercadoPagoConfig({ accessToken: token })
+          const mpPayment = new Payment(client)
+          const paymentData = await mpPayment.get({ id: paymentId })
+
+          if (paymentData?.status === 'approved') {
+            // Verificar si ya fue registrado
+            const [existing] = await db
+              .select()
+              .from(payments)
+              .where(and(eq(payments.externalId, String(paymentData.id)), eq(payments.restaurantId, restaurantId)))
+              .limit(1)
+
+            if (!existing) {
+              const paidAmount = paymentData.transaction_amount || '0'
+              const [newPaymentRecord] = await db
+                .insert(payments)
+                .values({
+                  restaurantId,
+                  orderId,
+                  method: 'mercadopago',
+                  amount: String(paidAmount),
+                  payerLabel: `Mercado Pago (${paymentData.payer?.email || paymentData.payer?.id || 'Cliente'})`,
+                  status: 'completed',
+                  externalId: String(paymentData.id),
+                  externalProvider: 'mercadopago',
+                  metadata: paymentData,
+                })
+                .returning()
+
+              console.log(`🎉 [Return/Success] Pago ${paymentId} registrado en BD para comanda ${orderId}`)
+
+              broadcastToRestaurant(restaurantId, {
+                type: 'payment:registered',
+                payload: { orderId, payment: newPaymentRecord },
+                timestamp: new Date().toISOString(),
+              })
+            } else {
+              console.log(`ℹ️ [Return/Success] Pago ${paymentId} ya estaba registrado.`)
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[Return/Success] Error procesando pago al volver de MP:', err)
+    }
+  }
+
   return c.redirect(`${env.CLIENT_URL}/orders/${orderId}/close?mp_status=success`)
 })
 
@@ -1477,7 +1550,12 @@ app.post('/api/orders/:id/create-payment-link', tenantMiddleware, requirePermiss
 // POST /api/mercadopago/webhook - Recibir notificaciones IPN/Webhook de Mercado Pago
 app.post('/api/mercadopago/webhook', async (c) => {
   try {
-    const body = await c.req.json().catch(() => ({}))
+    let body: any = {}
+    try {
+      body = await c.req.json()
+    } catch (e) {
+      body = {}
+    }
     const query = c.req.query()
 
     console.log("🔔 [Mercado Pago Webhook] Recibida notificación:", { body, query })
@@ -1487,7 +1565,7 @@ app.post('/api/mercadopago/webhook', async (c) => {
     // 2) IPN: query params ?id=123&topic=payment o body { id: "123", topic: "payment" }
     // 3) Notificaciones genéricas o cuando action contiene 'payment.'
     const topic = body.type || body.topic || query.type || query.topic || (body.action?.includes('payment') ? 'payment' : undefined)
-    let dataId = body.data?.id || query['data.id'] || body.id || query.id
+    let dataId = body?.data?.id || body?.['data.id'] || query['data.id'] || body?.id || query?.id
 
     // Si dataId es una URL de recurso como "/v1/payments/123", extraer el ID numérico/texto final
     if (typeof dataId === 'string' && dataId.includes('/')) {
@@ -1528,8 +1606,21 @@ app.post('/api/mercadopago/webhook', async (c) => {
           targetRestaurantId = rest.id
           break
         }
-      } catch (e) {
-        // Continuar intentando con el siguiente restaurante
+      } catch (e) {}
+    }
+
+    // Si no se encontró el pago en restaurantes guardados, intentar con el token de entorno como fallback
+    if (!paymentData && (env.MP_TEST_ACCESS_TOKEN || env.MP_CLIENT_SECRET)) {
+      const fallbackToken = env.MP_TEST_ACCESS_TOKEN || env.MP_CLIENT_SECRET
+      if (fallbackToken) {
+        try {
+          const client = new MercadoPagoConfig({ accessToken: fallbackToken })
+          const mpPayment = new Payment(client)
+          const fetched = await mpPayment.get({ id: dataId })
+          if (fetched && fetched.id) {
+            paymentData = fetched
+          }
+        } catch (e) {}
       }
     }
 
