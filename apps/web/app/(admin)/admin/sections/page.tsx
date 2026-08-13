@@ -1,0 +1,443 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { authClient, type CustomSession } from "@/lib/auth-client"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"
+import { Loader2, Plus, Edit2, Trash2, ArrowLeft, Store, AlertCircle, CheckCircle2 } from "lucide-react"
+import Link from "next/link"
+import { getApiUrl } from "@/lib/get-api-url"
+
+interface Section {
+  id: string
+  restaurantId: string
+  name: string
+  displayOrder: number
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export default function SectionsPage() {
+  const router = useRouter()
+  const { data: rawSession, isPending: sessionPending } = authClient.useSession()
+  const session = rawSession as unknown as CustomSession | null
+
+  // State
+  const [sections, setSections] = useState<Section[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+
+  // Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [modalMode, setModalMode] = useState<"create" | "edit">("create")
+  const [currentSection, setCurrentSection] = useState<Section | null>(null)
+  const [sectionName, setSectionName] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Fetch sections
+  const fetchSections = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`${getApiUrl()}/api/sections`, {
+        credentials: "include",
+      })
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || "No se pudieron obtener las secciones.")
+      }
+
+      const data = await res.json()
+      setSections(data)
+    } catch (err: any) {
+      console.error(err)
+      setError(err.message || "Error al cargar las secciones.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (session) {
+      fetchSections()
+    }
+  }, [session])
+
+  // Handle Save (Create / Edit)
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!sectionName.trim()) return
+
+    setIsSubmitting(false)
+    setError(null)
+    setSuccess(null)
+    setIsSubmitting(true)
+
+    try {
+      const url = modalMode === "create" 
+        ? `${getApiUrl()}/api/sections`
+        : `${getApiUrl()}/api/sections/${currentSection?.id}`
+
+      const method = modalMode === "create" ? "POST" : "PUT"
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name: sectionName }),
+        credentials: "include",
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || "Ocurrió un error al guardar la sección.")
+      }
+
+      setSuccess(
+        modalMode === "create"
+          ? "Sección creada exitosamente."
+          : "Sección modificada exitosamente."
+      )
+      setIsModalOpen(false)
+      setSectionName("")
+      setCurrentSection(null)
+      fetchSections()
+
+      // Auto-hide success alert
+      setTimeout(() => setSuccess(null), 4000)
+    } catch (err: any) {
+      setError(err.message || "Error al guardar la sección.")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // Handle Delete
+  const handleDelete = async () => {
+    if (!currentSection) return
+
+    setIsSubmitting(false)
+    setError(null)
+    setSuccess(null)
+    setIsSubmitting(true)
+
+    try {
+      const res = await fetch(`${getApiUrl()}/api/sections/${currentSection.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || "No se pudo eliminar la sección.")
+      }
+
+      setSuccess("Sección eliminada exitosamente.")
+      setIsDeleteModalOpen(false)
+      setCurrentSection(null)
+      fetchSections()
+
+      // Auto-hide success alert
+      setTimeout(() => setSuccess(null), 4000)
+    } catch (err: any) {
+      setError(err.message || "Error al eliminar la sección.")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // Open Modal Helpers
+  const openCreateModal = () => {
+    setModalMode("create")
+    setSectionName("")
+    setCurrentSection(null)
+    setError(null)
+    setIsModalOpen(true)
+  }
+
+  const openEditModal = (section: Section) => {
+    setModalMode("edit")
+    setSectionName(section.name)
+    setCurrentSection(section)
+    setError(null)
+    setIsModalOpen(true)
+  }
+
+  const openDeleteModal = (section: Section) => {
+    setCurrentSection(section)
+    setError(null)
+    setIsDeleteModalOpen(true)
+  }
+
+  if (sessionPending) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white">
+        <Loader2 className="h-8 w-8 animate-spin text-indigo-500 mb-2" />
+        <p className="text-slate-400 text-sm">Cargando secciones...</p>
+      </div>
+    )
+  }
+
+  if (!session) {
+    return null
+  }
+
+  return (
+    <div className="relative min-h-screen bg-slate-950 text-white p-6 md:p-12 overflow-hidden">
+      {/* Background decorations */}
+      <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-0 left-0 w-96 h-96 bg-violet-500/5 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="max-w-4xl mx-auto z-10 relative">
+        {/* Header */}
+        <header className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-8 pb-6 border-b border-slate-800">
+          <div>
+            <Link href="/admin" className="inline-flex items-center text-xs text-slate-400 hover:text-indigo-400 gap-1.5 mb-2 transition-all group">
+              <ArrowLeft className="h-3 w-3 group-hover:-translate-x-0.5 transition-all" />
+              Volver al Panel
+            </Link>
+            <h1 className="text-3xl font-extrabold tracking-tight">
+              Gestión de <span className="bg-linear-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent font-black">Secciones</span>
+            </h1>
+            <p className="text-slate-400 text-sm mt-1">
+              Administrá las áreas físicas de tu restaurante (ej. Salón, Terraza, Barra)
+            </p>
+          </div>
+          <Button 
+            onClick={openCreateModal}
+            className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold flex items-center gap-2 self-start sm:self-center transition-all duration-200"
+          >
+            <Plus className="h-4 w-4" />
+            Nueva Sección
+          </Button>
+        </header>
+
+        {/* Global Feedback */}
+        {success && (
+          <div className="mb-6 flex items-center gap-2 rounded-lg bg-emerald-500/10 p-4 text-sm text-emerald-400 border border-emerald-500/20 animate-in fade-in zoom-in-95 duration-200">
+            <CheckCircle2 className="h-5 w-5 shrink-0" />
+            <p>{success}</p>
+          </div>
+        )}
+
+        {error && !isModalOpen && !isDeleteModalOpen && (
+          <div className="mb-6 flex items-center gap-2 rounded-lg bg-destructive/10 p-4 text-sm text-destructive-foreground border border-destructive/20 animate-in fade-in zoom-in-95 duration-200">
+            <AlertCircle className="h-5 w-5 shrink-0" />
+            <p>{error}</p>
+          </div>
+        )}
+
+        {/* Content Card */}
+        <Card className="border-slate-800 bg-slate-900/40 backdrop-blur-md text-white">
+          <CardContent className="p-6">
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+                <Loader2 className="h-8 w-8 animate-spin text-slate-600 mb-2" />
+                <p className="text-sm">Obteniendo áreas del restaurante...</p>
+              </div>
+            ) : sections.length === 0 ? (
+              <div className="text-center py-16 border border-dashed border-slate-800 rounded-xl bg-slate-950/20">
+                <Store className="mx-auto h-12 w-12 text-slate-600 mb-4" />
+                <h3 className="text-lg font-semibold text-slate-300">No hay secciones registradas</h3>
+                <p className="text-slate-500 text-sm mt-1 mb-6">
+                  Crea tu primera sección física para empezar a organizar tus mesas.
+                </p>
+                <Button 
+                  onClick={openCreateModal}
+                  variant="outline"
+                  className="border-slate-800 hover:bg-slate-900 text-slate-300"
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Agregar Seccion
+                </Button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/20">
+                <table className="w-full text-left text-sm text-slate-300">
+                  <thead className="bg-slate-900/60 text-xs uppercase text-slate-400 border-b border-slate-800">
+                    <tr>
+                      <th className="px-6 py-4 font-semibold">Nombre de la Sección</th>
+                      <th className="px-6 py-4 font-semibold text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-850">
+                    {sections.map((section) => (
+                      <tr key={section.id} className="hover:bg-slate-900/40 transition-colors group">
+                        <td className="px-6 py-4 font-medium text-slate-200">
+                          {section.name}
+                        </td>
+                        <td className="px-6 py-4 text-right space-x-1.5">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => openEditModal(section)}
+                            className="h-8 w-8 text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all rounded-md"
+                            title="Editar nombre"
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => openDeleteModal(section)}
+                            className="h-8 w-8 text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all rounded-md"
+                            title="Eliminar sección"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* CREATE & EDIT DIALOG MODAL */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
+          <div className="bg-slate-900 border border-slate-850 rounded-xl w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden text-white">
+            <div className="px-6 pt-6 pb-4 border-b border-slate-850">
+              <h3 className="text-xl font-bold">
+                {modalMode === "create" ? "Nueva Sección" : "Editar Sección"}
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                {modalMode === "create" 
+                  ? "Crea una nueva división física para organizar mesas." 
+                  : "Modifica el nombre de la sección seleccionada."
+                }
+              </p>
+            </div>
+
+            <form onSubmit={handleSave}>
+              <div className="p-6 space-y-4">
+                {error && (
+                  <div className="flex items-center gap-2 rounded-lg bg-destructive/10 p-3 text-xs text-destructive-foreground border border-destructive/20 animate-in fade-in duration-150">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    <p>{error}</p>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="modalSectionName" className="text-slate-300">Nombre de la Sección</Label>
+                  <Input
+                    id="modalSectionName"
+                    type="text"
+                    placeholder="Ej. Salón Principal, Terraza, Barra"
+                    value={sectionName}
+                    onChange={(e) => setSectionName(e.target.value)}
+                    className="bg-slate-950/40 border-slate-800 text-slate-100 placeholder:text-slate-600 focus-visible:ring-indigo-500 focus-visible:border-indigo-500"
+                    autoFocus
+                    required
+                    disabled={isSubmitting}
+                  />
+                </div>
+              </div>
+
+              <div className="px-6 py-4 bg-slate-950/40 border-t border-slate-850 flex justify-end gap-2.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsModalOpen(false)}
+                  className="border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-slate-200"
+                  disabled={isSubmitting}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold"
+                  disabled={isSubmitting || !sectionName.trim()}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Guardando...
+                    </>
+                  ) : (
+                    "Guardar"
+                  )}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM DELETE DIALOG MODAL */}
+      {isDeleteModalOpen && currentSection && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
+          <div className="bg-slate-900 border border-slate-850 rounded-xl w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden text-white">
+            <div className="px-6 pt-6 pb-4 border-b border-slate-850">
+              <h3 className="text-xl font-bold flex items-center gap-2 text-red-400">
+                <AlertCircle className="h-5 w-5 shrink-0 text-red-400" />
+                ¿Eliminar Sección?
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Esta acción es irreversible y permanente.
+              </p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {error && (
+                <div className="flex items-center gap-2 rounded-lg bg-destructive/10 p-3 text-xs text-destructive-foreground border border-destructive/20 animate-in fade-in duration-150">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <p>{error}</p>
+                </div>
+              )}
+
+              <p className="text-sm text-slate-300">
+                ¿Estás seguro de que deseas eliminar la sección{" "}
+                <span className="font-bold text-white">"{currentSection.name}"</span>?
+              </p>
+              
+              <div className="rounded-lg bg-slate-950/40 p-3 text-xs text-amber-500 border border-amber-500/20">
+                ⚠️ <span className="font-semibold">Nota:</span> Si la sección tiene mesas asociadas, la base de datos bloqueará la eliminación para evitar inconsistencias en el sistema de planos.
+              </div>
+            </div>
+
+            <div className="px-6 py-4 bg-slate-950/40 border-t border-slate-850 flex justify-end gap-2.5">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsDeleteModalOpen(false)}
+                className="border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-slate-200"
+                disabled={isSubmitting}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                onClick={handleDelete}
+                className="bg-red-600 hover:bg-red-500 text-white font-semibold"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Eliminando...
+                  </>
+                ) : (
+                  "Confirmar y Eliminar"
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

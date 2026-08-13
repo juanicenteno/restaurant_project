@@ -8,6 +8,34 @@
       "when": 1776716672661,
       "tag": "0000_acoustic_morlun",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776716672662,
+      "tag": "0001_add_role_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776716672663,
+      "tag": "0002_add_sent_to_kitchen_enum",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776716672664,
+      "tag": "0003_add_bartender_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776716672665,
+      "tag": "0004_sync_payment_enums",
+      "breakpoints": true
     }
   ]
 }

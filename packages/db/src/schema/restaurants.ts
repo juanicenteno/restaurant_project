@@ -20,6 +20,10 @@ export const restaurants = pgTable("restaurants", {
   trialEndsAt: timestamp("trial_ends_at"),
   settings: jsonb("settings").notNull().default(sql`'{}'::jsonb`),
   isActive: boolean("is_active").notNull().default(true),
+  mpAccessToken: text("mp_access_token"),
+  mpRefreshToken: text("mp_refresh_token"),
+  mpUserId: text("mp_user_id"),
+  mpConnectedAt: timestamp("mp_connected_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

@@ -3,6 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "scripts": {
+    "verify:enums": "tsx src/verify-enums.ts",
+    "verify:schema": "tsx src/verify-schema.ts"
+  },
   "exports": {
     "./schema": "./src/schema.ts",
     "./client": "./src/client.ts",

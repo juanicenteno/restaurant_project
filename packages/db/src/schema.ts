@@ -11,18 +11,23 @@ import {
 import { restaurants } from "./schema/restaurants.js";
 import { user } from "./auth-schema.js";
 
-export const userRoleEnum = pgEnum("user_role", ["owner", "manager", "waiter", "cashier", "cook", "host"]);
+export const userRoleEnum = pgEnum("user_role", ["owner", "manager", "waiter", "cashier", "cook", "bartender", "host"]);
 export const deviceTypeEnum = pgEnum("device_type", ["tablet", "phone", "desktop", "kds"]);
 export const tableStatusEnum = pgEnum("table_status", ["free", "occupied", "reserved", "waiting_bill", "cleaning"]);
 export const tableShapeEnum = pgEnum("table_shape", ["rectangle", "circle", "square"]);
 export const unitTypeEnum = pgEnum("unit_type", ["g", "kg", "ml", "l", "unit", "portion"]);
 export const stockMovementReasonEnum = pgEnum("stock_movement_reason", ["sale", "purchase", "adjustment", "waste", "return"]);
 export const orderStatusEnum = pgEnum("order_status", ["open", "in_progress", "ready", "billed", "paid", "cancelled"]);
-export const orderItemStatusEnum = pgEnum("order_item_status", ["pending", "sent", "preparing", "ready", "delivered", "cancelled"]);
-export const paymentMethodEnum = pgEnum("payment_method", ["cash", "credit_card", "debit_card", "mercado_pago", "transfer", "voucher", "other"]);
-export const paymentStatusEnum = pgEnum("payment_status", ["pending", "approved", "rejected", "refunded"]);
+
+// NOTA IMPORTANTE: Si se agregan valores a un pgEnum ya existente en Postgres (ej. orderItemStatusEnum), 
+// PostgreSQL requiere ALTER TYPE <enum_name> ADD VALUE IF NOT EXISTS '...'; mediante migración SQL manual,
+// ya que Drizzle Kit no modifica automáticamente los tipos enum ya creados en la base de datos.
+export const orderItemStatusEnum = pgEnum("order_item_status", ["pending", "sent", "sent_to_kitchen", "preparing", "ready", "delivered", "cancelled"]);
+export const paymentMethodEnum = pgEnum("payment_method", ["cash", "card", "mercadopago", "transfer", "credit_card", "debit_card", "mercado_pago", "voucher", "other"]);
+export const paymentStatusEnum = pgEnum("payment_status", ["pending", "completed", "approved", "rejected", "refunded"]);
 export const invoiceTypeEnum = pgEnum("invoice_type", ["A", "B", "C", "credit_note_A", "credit_note_B"]);
 export const reservationStatusEnum = pgEnum("reservation_status", ["pending", "confirmed", "seated", "completed", "cancelled", "no_show"]);
+export const categoryStationEnum = pgEnum("category_station", ["kitchen", "bar"]);
 
 export const devices = pgTable("devices", {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -83,6 +88,7 @@ export const categories = pgTable("categories", {
     name: text("name").notNull(),
     description: text("description"),
     imageUrl: text("image_url"),
+    station: categoryStationEnum("station").notNull().default("kitchen"),
     displayOrder: integer("display_order").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -204,6 +210,7 @@ export const orders = pgTable("orders", {
     taxRate: numeric("tax_rate", { precision: 5, scale: 4 }).notNull().default("0.21"),
     taxAmount: numeric("tax_amount", { precision: 12, scale: 2 }).notNull().default("0"),
     discountAmount: numeric("discount_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+    discountReason: text("discount_reason"),
     tipAmount: numeric("tip_amount", { precision: 12, scale: 2 }).notNull().default("0"),
     total: numeric("total", { precision: 12, scale: 2 }).notNull().default("0"),
     openedAt: timestamp("opened_at").notNull().defaultNow(),
@@ -230,6 +237,7 @@ export const orderItems = pgTable("order_items", {
     unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull(),
     totalPrice: numeric("total_price", { precision: 12, scale: 2 }).notNull(),
     notes: text("notes"),
+    splitGroupId: text("split_group_id"),
     status: orderItemStatusEnum("status").notNull().default("pending"),
     sentToKitchenAt: timestamp("sent_to_kitchen_at"),
     readyAt: timestamp("ready_at"),
@@ -261,6 +269,7 @@ export const payments = pgTable("payments", {
     method: paymentMethodEnum("method").notNull(),
     amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
     tipAmount: numeric("tip_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+    payerLabel: text("payer_label"),
     status: paymentStatusEnum("status").notNull().default("pending"),
     externalId: text("external_id"),
     externalProvider: text("external_provider"),
@@ -351,4 +360,13 @@ export const shifts = pgTable("shifts", {
 }, (table) => [
     index("shifts_restaurant_idx").on(table.restaurantId),
     index("shifts_user_idx").on(table.userId, table.clockInAt),
+]);
+
+export const rolePermissions = pgTable("role_permissions", {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    role: text("role").notNull(),
+    permission: text("permission").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+    uniqueIndex("role_permissions_role_permission_idx").on(table.role, table.permission),
 ]);
