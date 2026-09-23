@@ -1378,6 +1378,18 @@ app.get('/api/mercadopago/return/success', async (c) => {
 
             if (!existing) {
               const paidAmount = paymentData.transaction_amount || '0'
+
+              // Recuperar tipAmount de external_reference (embebido al crear la preferencia)
+              let mpTipAmount = 0
+              let mpConsumoAmount = Number(paidAmount)
+              try {
+                const refObj = JSON.parse(decodeURIComponent(externalReference))
+                if (refObj.tipAmount) {
+                  mpTipAmount = Number(refObj.tipAmount)
+                  mpConsumoAmount = Number(refObj.consumoAmount || 0)
+                }
+              } catch (_) {}
+
               const [newPaymentRecord] = await db
                 .insert(payments)
                 .values({
@@ -1385,6 +1397,7 @@ app.get('/api/mercadopago/return/success', async (c) => {
                   orderId,
                   method: 'mercadopago',
                   amount: String(paidAmount),
+                  tipAmount: mpTipAmount.toFixed(2),
                   payerLabel: `Mercado Pago (${paymentData.payer?.email || paymentData.payer?.id || 'Cliente'})`,
                   status: 'completed',
                   externalId: String(paymentData.id),
@@ -1392,6 +1405,13 @@ app.get('/api/mercadopago/return/success', async (c) => {
                   metadata: paymentData,
                 })
                 .returning()
+
+              // Acumular propina en la comanda
+              if (mpTipAmount > 0) {
+                const [ord] = await db.select({ tipAmount: orders.tipAmount }).from(orders).where(eq(orders.id, orderId)).limit(1)
+                const currentTip = Number(ord?.tipAmount || 0)
+                await db.update(orders).set({ tipAmount: (currentTip + mpTipAmount).toFixed(2), updatedAt: new Date() }).where(eq(orders.id, orderId))
+              }
 
               console.log(`🎉 [Return/Success] Pago ${paymentId} registrado en BD para comanda ${orderId}`)
 
@@ -1431,6 +1451,7 @@ app.post('/api/orders/:id/create-payment-link', tenantMiddleware, requirePermiss
   const orderId = c.req.param("id")
   const body = await c.req.json().catch(() => ({}))
   const requestedAmount = body.amount ? Number(body.amount) : null
+  const requestedTip = body.tipAmount ? Math.max(0, Number(body.tipAmount)) : 0
 
   try {
     // 1. Obtener restaurante y verificar que tenga su cuenta de Mercado Pago conectada
@@ -1481,9 +1502,12 @@ app.post('/api/orders/:id/create-payment-link', tenantMiddleware, requirePermiss
       return c.json({ error: "La comanda ya está totalmente cobrada." }, 400)
     }
 
-    const finalPayAmount = (requestedAmount && requestedAmount > 0 && requestedAmount <= remainingAmount + 0.05)
+    const finalConsumo = (requestedAmount && requestedAmount > 0 && requestedAmount <= remainingAmount + 0.05)
       ? requestedAmount
       : remainingAmount
+
+    // Sumar propina al monto cobrado vía MP en un único cobro
+    const finalPayAmount = Number((finalConsumo + requestedTip).toFixed(2))
 
     // 3. Obtener mesa para el título descriptivo
     const [tableData] = orderData.tableId
@@ -1516,13 +1540,16 @@ app.post('/api/orders/:id/create-payment-link', tenantMiddleware, requirePermiss
         items: [
           {
             id: orderId,
-            title: `Pago Comanda Mesa #${tableData?.number || 'N/A'} - ${restaurant.name}`,
+            title: requestedTip > 0
+              ? `Comanda Mesa #${tableData?.number || 'N/A'} + Propina — ${restaurant.name}`
+              : `Pago Comanda Mesa #${tableData?.number || 'N/A'} - ${restaurant.name}`,
             quantity: 1,
             unit_price: Number(finalPayAmount.toFixed(2)),
             currency_id: restaurant.currency || 'ARS',
           }
         ],
-        external_reference: JSON.stringify({ orderId, restaurantId }),
+        // tipAmount se embebe en external_reference para recuperarlo en webhook y return/success
+        external_reference: JSON.stringify({ orderId, restaurantId, tipAmount: requestedTip, consumoAmount: finalConsumo }),
         notification_url: notificationUrl,
         back_urls: {
           success: `${ngrokOrigin}/api/mercadopago/return/success?orderId=${orderId}&ngrok-skip-browser-warning=true`,
@@ -1540,6 +1567,7 @@ app.post('/api/orders/:id/create-payment-link', tenantMiddleware, requirePermiss
       sandbox_init_point: response.sandbox_init_point || initPoint,
       preferenceId: response.id,
       amount: remainingAmount,
+      tipAmount: requestedTip,
     })
   } catch (err: any) {
     console.error("Error al crear preferencia de Mercado Pago:", err)
@@ -1658,6 +1686,13 @@ app.post('/api/mercadopago/webhook', async (c) => {
         if (!existingPayment) {
           const paidAmount = paymentData.transaction_amount || paymentData.transaction_details?.total_paid_amount || "0"
 
+          // Recuperar tipAmount de external_reference (embebido al crear la preferencia)
+          let mpTipAmount = 0
+          try {
+            const refObj = JSON.parse(paymentData.external_reference || '{}')
+            if (refObj.tipAmount) mpTipAmount = Number(refObj.tipAmount)
+          } catch (_) {}
+
           const [newPaymentRecord] = await db
             .insert(payments)
             .values({
@@ -1665,6 +1700,7 @@ app.post('/api/mercadopago/webhook', async (c) => {
               orderId,
               method: 'mercadopago',
               amount: String(paidAmount),
+              tipAmount: mpTipAmount.toFixed(2),
               payerLabel: `Mercado Pago (${paymentData.payer?.email || paymentData.payer?.id || 'Cliente'})`,
               status: 'completed',
               externalId: String(paymentData.id),
@@ -1673,7 +1709,14 @@ app.post('/api/mercadopago/webhook', async (c) => {
             })
             .returning()
 
-          console.log(`🎉 [Webhook MP] Pago registrado en la BD para comanda ${orderId}: $${paidAmount}`)
+          // Acumular propina en la comanda
+          if (mpTipAmount > 0) {
+            const [ord] = await db.select({ tipAmount: orders.tipAmount }).from(orders).where(eq(orders.id, orderId)).limit(1)
+            const currentTip = Number(ord?.tipAmount || 0)
+            await db.update(orders).set({ tipAmount: (currentTip + mpTipAmount).toFixed(2), updatedAt: new Date() }).where(eq(orders.id, orderId))
+          }
+
+          console.log(`🎉 [Webhook MP] Pago registrado en la BD para comanda ${orderId}: $${paidAmount} (propina: $${mpTipAmount})`)
 
           // Emitir evento WebSocket para actualizar en tiempo real la UI del cajero
           broadcastToRestaurant(restaurantId, {
@@ -2158,6 +2201,7 @@ app.get('/api/orders/:id/payments', tenantMiddleware, requirePermission('manage_
         orderId: payments.orderId,
         method: payments.method,
         amount: payments.amount,
+        tipAmount: payments.tipAmount,
         payerLabel: payments.payerLabel,
         status: payments.status,
         createdAt: payments.createdAt,
@@ -2175,6 +2219,10 @@ app.get('/api/orders/:id/payments', tenantMiddleware, requirePermission('manage_
       .filter((p: { status: string; amount: string | number }) => p.status === "completed")
       .reduce((sum: number, p: { amount: string | number }) => sum + Number(p.amount), 0)
 
+    const totalTips = registeredPayments
+      .filter((p: { status: string }) => p.status === "completed")
+      .reduce((sum: number, p: { tipAmount?: string | number | null }) => sum + Number(p.tipAmount || 0), 0)
+
     const totalOrder = Number(orderData.total || 0)
     const remainingAmount = Math.max(0, totalOrder - totalPaid)
 
@@ -2182,6 +2230,7 @@ app.get('/api/orders/:id/payments', tenantMiddleware, requirePermission('manage_
       payments: registeredPayments,
       totalOrder,
       totalPaid,
+      totalTips,
       remainingAmount,
     })
   } catch (err: any) {
@@ -2196,11 +2245,16 @@ app.post('/api/orders/:id/payments', tenantMiddleware, requirePermission('manage
   const restaurantId = c.get("restaurantId")
   const currentUser = c.get("user")
   const orderId = c.req.param("id")
-  const { amount, method, payerLabel } = await c.req.json()
+  const { amount, method, payerLabel, tipAmount } = await c.req.json()
 
   const amountNum = Number(amount)
   if (isNaN(amountNum) || amountNum <= 0) {
     return c.json({ error: "El monto del pago debe ser mayor a 0." }, 400)
+  }
+
+  const tipNum = Number(tipAmount || 0)
+  if (isNaN(tipNum) || tipNum < 0) {
+    return c.json({ error: "El monto de propina debe ser un número mayor o igual a 0." }, 400)
   }
 
   const validMethods = ["cash", "card", "mercadopago", "transfer"]
@@ -2244,6 +2298,10 @@ app.post('/api/orders/:id/payments', tenantMiddleware, requirePermission('manage
       .filter((p: { status: string; amount: string | number }) => p.status === "completed")
       .reduce((sum: number, p: { amount: string | number }) => sum + Number(p.amount), 0)
 
+    const totalTips = existingPayments
+      .filter((p: { status: string }) => p.status === "completed")
+      .reduce((sum: number, p: { tipAmount?: string | number | null }) => sum + Number(p.tipAmount || 0), 0)
+
     const totalOrder = Number(orderData.total || 0)
     const remainingBefore = Math.max(0, totalOrder - totalPaid)
 
@@ -2261,12 +2319,23 @@ app.post('/api/orders/:id/payments', tenantMiddleware, requirePermission('manage
         processedBy: currentUser.id,
         method,
         amount: amountNum.toFixed(2),
+        tipAmount: tipNum.toFixed(2),
         payerLabel: payerLabel?.trim() || null,
         status: "completed",
       })
       .returning()
 
+    // Acumular propina en la comanda (para futuros reportes por mozo)
+    if (tipNum > 0) {
+      const currentTip = Number(orderData.tipAmount || 0)
+      await tx
+        .update(orders)
+        .set({ tipAmount: (currentTip + tipNum).toFixed(2), updatedAt: new Date() })
+        .where(eq(orders.id, orderId))
+    }
+
     const newTotalPaid = totalPaid + amountNum
+    const newTotalTips = totalTips + tipNum
     const remainingAfter = Math.max(0, totalOrder - newTotalPaid)
 
     broadcastToRestaurant(restaurantId, {
@@ -2279,6 +2348,7 @@ app.post('/api/orders/:id/payments', tenantMiddleware, requirePermission('manage
       payment: newPayment,
       totalOrder,
       totalPaid: newTotalPaid,
+      totalTips: newTotalTips,
       remainingAmount: remainingAfter,
     }, 201)
   } catch (err: any) {

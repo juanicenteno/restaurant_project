@@ -34,6 +34,7 @@ interface PaymentRecord {
   orderId: string
   method: "cash" | "card" | "mercadopago" | "transfer"
   amount: string
+  tipAmount?: string | null
   payerLabel?: string | null
   status: string
   createdAt: string
@@ -81,6 +82,11 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [mpReturnNotice, setMpReturnNotice] = useState<string | null>(null)
+
+  // Propinas
+  const [tipPercent, setTipPercent] = useState<number>(0)        // 0, 10, 15, 20
+  const [tipManual, setTipManual] = useState<string>("")          // input manual
+  const [totalTips, setTotalTips] = useState<number>(0)          // total acumulado de propinas
 
 
   // Discount form state
@@ -150,6 +156,7 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
         const payData = await payRes.json()
         setPaymentsList(payData.payments || [])
         setTotalPaid(payData.totalPaid || 0)
+        setTotalTips(payData.totalTips || 0)
         setRemainingAmount(payData.remainingAmount ?? (sumData.total - (payData.totalPaid || 0)))
         
         // Default single payment input to remaining amount
@@ -210,14 +217,14 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
   }, [session, canManagePayments, fetchAllData])
 
   // Mercado Pago Link Generator
-  const handleGenerateMpLink = async (customAmount?: number) => {
+  const handleGenerateMpLink = async (customAmount?: number, tipAmt?: number) => {
     setGeneratingMpLink(true)
     setError(null)
     try {
       const res = await fetch(`${getApiUrl()}/api/orders/${orderId}/create-payment-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: customAmount }),
+        body: JSON.stringify({ amount: customAmount, tipAmount: tipAmt ?? tipAmountCalc }),
         credentials: "include",
       })
 
@@ -284,7 +291,7 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
   }
 
   // Register a Payment Handler
-  const handleRegisterPayment = async (amountToPay: number, label: string, methodOverride?: string) => {
+  const handleRegisterPayment = async (amountToPay: number, label: string, methodOverride?: string, tipAmt?: number) => {
     setRegisteringPayment(true)
     setError(null)
 
@@ -303,6 +310,7 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
           amount: amountToPay,
           method: methodToUse,
           payerLabel: label,
+          tipAmount: tipAmt ?? tipAmountCalc,
         }),
         credentials: "include",
       })
@@ -312,6 +320,9 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
         throw new Error(data.error || "No se pudo registrar el pago.")
       }
 
+      // Resetear propina al completar
+      setTipPercent(0)
+      setTipManual("")
       await fetchAllData()
     } catch (err: any) {
       console.error(err)
@@ -410,6 +421,12 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
 
   const orderTotal = summary?.total || 0
   const isFullyPaid = remainingAmount <= 0.01 && orderTotal > 0
+
+  // Propina calculada a partir del porcentaje o del input manual
+  const tipAmountCalc: number = (() => {
+    if (tipManual !== "") return Math.max(0, Number(tipManual) || 0)
+    return Math.round(orderTotal * (tipPercent / 100) * 100) / 100
+  })()
 
   return (
     <div className="relative min-h-screen bg-slate-950 text-white p-4 md:p-8 overflow-hidden">
@@ -599,12 +616,82 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
                       </div>
                     </div>
 
+                    {/* ── Sección Propina ── */}
+                    <div className="space-y-2.5 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                      <div className="flex items-center gap-1.5">
+                        <Percent className="h-3.5 w-3.5 text-amber-400" />
+                        <span className="text-xs font-bold text-amber-300">Propina (opcional)</span>
+                      </div>
+
+                      {/* Botones rápidos de porcentaje */}
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {[0, 10, 15, 20].map((pct) => (
+                          <button
+                            key={pct}
+                            type="button"
+                            onClick={() => { setTipPercent(pct); setTipManual("") }}
+                            className={`h-8 rounded-md text-xs font-bold transition-all border ${
+                              tipPercent === pct && tipManual === ""
+                                ? "bg-amber-500 border-amber-400 text-slate-950"
+                                : "bg-slate-900 border-slate-700 text-slate-300 hover:border-amber-500/50 hover:text-amber-300"
+                            }`}
+                          >
+                            {pct === 0 ? "Sin propina" : `${pct}%`}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Input manual */}
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="Monto manual..."
+                          value={tipManual}
+                          onChange={(e) => { setTipManual(e.target.value); setTipPercent(-1) }}
+                          className="bg-slate-900 border-slate-700 text-slate-100 h-8 text-xs flex-1"
+                        />
+                        {tipManual !== "" && (
+                          <button
+                            type="button"
+                            onClick={() => { setTipManual(""); setTipPercent(0) }}
+                            className="text-slate-500 hover:text-slate-300 text-xs px-2"
+                          >✕</button>
+                        )}
+                      </div>
+
+                      {/* Preview de totales con propina */}
+                      {tipAmountCalc > 0 && (
+                        <div className="space-y-1 pt-1 border-t border-amber-500/20">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-slate-400">Consumo:</span>
+                            <span className="text-slate-300">${Number(paymentAmountInput || remainingAmount).toLocaleString("es-AR", { minimumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-amber-400">Propina{tipPercent > 0 && tipManual === "" ? ` (${tipPercent}%)` : ""}:</span>
+                            <span className="font-bold text-amber-400">+${tipAmountCalc.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between text-xs pt-0.5 border-t border-amber-500/20">
+                            <span className="font-bold text-slate-200">Total con propina:</span>
+                            <span className="font-black text-amber-300">
+                              ${(Number(paymentAmountInput || remainingAmount) + tipAmountCalc).toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <Button
                       onClick={() => handleRegisterPayment(Number(paymentAmountInput || remainingAmount), "Pago completo")}
                       disabled={registeringPayment || remainingAmount <= 0.01}
                       className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-9 mt-2"
                     >
-                      {registeringPayment ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Registrar Pago de la Comanda"}
+                      {registeringPayment ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : (
+                        tipAmountCalc > 0
+                          ? `Registrar $${(Number(paymentAmountInput || remainingAmount) + tipAmountCalc).toLocaleString("es-AR")} (inc. propina)`
+                          : "Registrar Pago de la Comanda"
+                      )}
                     </Button>
                   </div>
                 )}
@@ -623,9 +710,11 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
                     </div>
 
                     <Button
-                      type="button"
-                      onClick={() => handleGenerateMpLink(splitMode === "single" ? Number(paymentAmountInput || remainingAmount) : undefined)}
-                      disabled={generatingMpLink || remainingAmount <= 0.01}
+                    type="button"
+                    onClick={() => handleGenerateMpLink(
+                      splitMode === "single" ? Number(paymentAmountInput || remainingAmount) : undefined
+                    )}
+                    disabled={generatingMpLink || remainingAmount <= 0.01}
                       className="bg-sky-500 hover:bg-sky-400 text-slate-950 font-extrabold text-xs h-9 shrink-0 flex items-center gap-1.5 shadow-md shadow-sky-500/20"
                     >
                       {generatingMpLink ? <Loader2 className="h-4 w-4 animate-spin" /> : <QrCode className="h-4 w-4" />}
@@ -943,6 +1032,7 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
                     const isDeleting = actionLoadingPaymentId === payment.id
                     const methodObj = PAYMENT_METHODS.find((m) => m.id === payment.method)
                     const MethodIcon = methodObj?.icon || CreditCard
+                    const hasTip = Number(payment.tipAmount || 0) > 0
 
                     return (
                       <div
@@ -959,6 +1049,11 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
                             </p>
                             <p className="text-[10px] text-slate-500">
                               {new Date(payment.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} hs
+                              {hasTip && (
+                                <span className="ml-1.5 text-amber-400 font-semibold">
+                                  · Propina: +${Number(payment.tipAmount).toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                                </span>
+                              )}
                             </p>
                           </div>
                         </div>
@@ -984,6 +1079,21 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
                   })
                 )}
               </CardContent>
+
+              {/* Propina total acumulada */}
+              {totalTips > 0 && (
+                <div className="px-4 pb-3">
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs">
+                    <span className="flex items-center gap-1.5 text-amber-300 font-semibold">
+                      <Percent className="h-3.5 w-3.5" />
+                      Propina total acumulada:
+                    </span>
+                    <span className="font-black text-amber-400">
+                      +${totalTips.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+              )}
             </Card>
 
             {/* Final Close Order CTA Card */}
@@ -998,6 +1108,13 @@ export default function CloseOrderPage({ params }: { params: Promise<{ orderId: 
                   <span>Descuento acumulado:</span>
                   <span>-${Number(summary?.discountAmount || 0).toLocaleString("es-AR", { minimumFractionDigits: 2 })}</span>
                 </div>
+
+                {totalTips > 0 && (
+                  <div className="flex justify-between text-amber-300">
+                    <span className="flex items-center gap-1"><Percent className="h-3 w-3" /> Propinas acumuladas:</span>
+                    <span>+${totalTips.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
 
                 <div className="pt-2 border-t border-slate-800 flex justify-between items-baseline">
                   <span className="font-bold text-sm text-slate-200">TOTAL FACTURACIÓN:</span>
